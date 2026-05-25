@@ -42,23 +42,10 @@ final class Strings
 
     /**
      * Capitalises the first letter of each word.
-     *
-     * The word boundary is a single ASCII space.
      */
     public static function capitalize(mixed $value): string
     {
-        $str   = (string) $value;
-        $words = explode(' ', mb_strtolower($str, 'UTF-8'));
-
-        foreach ($words as &$word) {
-            if ($word === '') {
-                continue;
-            }
-            $word = mb_strtoupper(mb_substr($word, 0, 1, 'UTF-8'), 'UTF-8')
-                  . mb_substr($word, 1, null, 'UTF-8');
-        }
-
-        return implode(' ', $words);
+        return mb_convert_case((string) $value, MB_CASE_TITLE, 'UTF-8');
     }
 
     /**
@@ -238,13 +225,10 @@ final class Strings
             ? preg_split('@(?=' . preg_quote($delimiter, '@') . ')@', $str)
             : explode($delimiter, $str);
 
-        $result = new Arr();
-        foreach ($parts as $part) {
-            if ($clearEmpty === false || $part !== '') {
-                $result[] = $part;
-            }
+        if ($clearEmpty) {
+            $parts = array_values(array_filter($parts, static fn($p) => $p !== ''));
         }
-        return $result;
+        return new Arr($parts);
     }
 
     /**
@@ -254,18 +238,8 @@ final class Strings
      */
     public static function splitLength(mixed $value, mixed $length): Arr
     {
-        $str    = (string) $value;
-        $len    = max(1, (int) $length);
-        $result = new Arr();
-
-        while (strlen($str) > $len) {
-            $result[] = substr($str, 0, $len);
-            $str      = substr($str, $len);
-        }
-        if ($str !== '') {
-            $result[] = $str;
-        }
-        return $result;
+        $chunks = str_split((string) $value, max(1, (int) $length));
+        return new Arr($chunks !== false ? $chunks : []);
     }
 
     /**

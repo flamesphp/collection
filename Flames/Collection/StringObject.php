@@ -35,19 +35,19 @@ final class StringObject
     public function __get(string $name): mixed
     {
         return match (strtolower($name)) {
-            'length', 'count' => $this->length(),
+            'length', 'count' => strlen($this->value),
             default           => null,
         };
     }
 
     public function length(bool $multibyte = false): int
     {
-        return Strings::length($this->value, $multibyte);
+        return $multibyte ? mb_strlen($this->value, 'UTF-8') : strlen($this->value);
     }
 
     public function count(bool $multibyte = false): int
     {
-        return Strings::count($this->value, $multibyte);
+        return $multibyte ? mb_strlen($this->value, 'UTF-8') : strlen($this->value);
     }
 
     public function isEmpty(): bool
@@ -57,13 +57,13 @@ final class StringObject
 
     public function toLower(bool $multibyte = false): self
     {
-        $this->value = Strings::toLower($this->value, $multibyte);
+        $this->value = $multibyte ? mb_strtolower($this->value, 'UTF-8') : strtolower($this->value);
         return $this;
     }
 
     public function toUpper(bool $multibyte = false): self
     {
-        $this->value = Strings::toUpper($this->value, $multibyte);
+        $this->value = $multibyte ? mb_strtoupper($this->value, 'UTF-8') : strtoupper($this->value);
         return $this;
     }
 
@@ -72,7 +72,7 @@ final class StringObject
      */
     public function capitalize(): self
     {
-        $this->value = Strings::capitalize($this->value);
+        $this->value = mb_convert_case($this->value, MB_CASE_TITLE, 'UTF-8');
         return $this;
     }
 
@@ -81,23 +81,38 @@ final class StringObject
      */
     public function capitalizeFirst(): self
     {
-        $this->value = Strings::capitalizeFirst($this->value);
+        if ($this->value !== '') {
+            $this->value = mb_strtoupper(mb_substr($this->value, 0, 1, 'UTF-8'), 'UTF-8')
+                         . mb_substr($this->value, 1, null, 'UTF-8');
+        }
         return $this;
     }
 
     public function startsWith(mixed $needle, bool $caseSensitive = true): bool
     {
-        return Strings::startsWith($this->value, $needle, $caseSensitive);
+        $search = (string) $needle;
+        if ($caseSensitive === false) {
+            return str_starts_with(mb_strtolower($this->value, 'UTF-8'), mb_strtolower($search, 'UTF-8'));
+        }
+        return str_starts_with($this->value, $search);
     }
 
     public function endsWith(mixed $needle, bool $caseSensitive = true): bool
     {
-        return Strings::endsWith($this->value, $needle, $caseSensitive);
+        $search = (string) $needle;
+        if ($caseSensitive === false) {
+            return str_ends_with(mb_strtolower($this->value, 'UTF-8'), mb_strtolower($search, 'UTF-8'));
+        }
+        return str_ends_with($this->value, $search);
     }
 
     public function contains(mixed $needle, bool $caseSensitive = true): bool
     {
-        return Strings::contains($this->value, $needle, $caseSensitive);
+        $search = (string) $needle;
+        if ($caseSensitive === false) {
+            return str_contains(mb_strtolower($this->value, 'UTF-8'), mb_strtolower($search, 'UTF-8'));
+        }
+        return str_contains($this->value, $search);
     }
 
     public function containsAny(array|Arr $needles, bool $caseSensitive = true): bool
@@ -107,7 +122,11 @@ final class StringObject
 
     public function equals(mixed $needle, bool $caseSensitive = true): bool
     {
-        return Strings::equals($this->value, $needle, $caseSensitive);
+        $search = (string) $needle;
+        if ($caseSensitive === false) {
+            return mb_strtolower($this->value, 'UTF-8') === mb_strtolower($search, 'UTF-8');
+        }
+        return $this->value === $search;
     }
 
     public function equalsAny(array|Arr $needles, bool $caseSensitive = true): bool
@@ -117,13 +136,13 @@ final class StringObject
 
     public function replace(mixed $needle, mixed $replace): self
     {
-        $this->value = Strings::replace($this->value, $needle, $replace);
+        $this->value = str_replace((string) $needle, (string) $replace, $this->value);
         return $this;
     }
 
     public function remove(mixed $needle): self
     {
-        $this->value = Strings::remove($this->value, $needle);
+        $this->value = str_replace((string) $needle, '', $this->value);
         return $this;
     }
 
@@ -132,7 +151,7 @@ final class StringObject
      */
     public function append(mixed $suffix): self
     {
-        $this->value = Strings::append($this->value, $suffix);
+        $this->value .= (string) $suffix;
         return $this;
     }
 
@@ -141,7 +160,7 @@ final class StringObject
      */
     public function prepend(mixed $prefix): self
     {
-        $this->value = Strings::prepend($this->value, $prefix);
+        $this->value = (string) $prefix . $this->value;
         return $this;
     }
 
@@ -152,19 +171,19 @@ final class StringObject
      */
     public function pad(int $length, string $pad = ' ', int $type = STR_PAD_RIGHT): self
     {
-        $this->value = Strings::pad($this->value, $length, $pad, $type);
+        $this->value = str_pad($this->value, $length, $pad, $type);
         return $this;
     }
 
     public function encode(bool $raw = false): self
     {
-        $this->value = Strings::encode($this->value, $raw);
+        $this->value = $raw ? urlencode($this->value) : rawurlencode($this->value);
         return $this;
     }
 
     public function decode(bool $raw = false): self
     {
-        $this->value = Strings::decode($this->value, $raw);
+        $this->value = $raw ? urldecode($this->value) : rawurldecode($this->value);
         return $this;
     }
 
@@ -175,56 +194,75 @@ final class StringObject
 
     public function splitLength(mixed $length): Arr
     {
-        return Strings::splitLength($this->value, $length);
+        $chunks = str_split($this->value, max(1, (int) $length));
+        return new Arr($chunks !== false ? $chunks : []);
     }
 
     public function splitWords(): Arr
     {
-        return Strings::splitWords($this->value);
+        return new Arr(explode(' ', $this->value));
     }
 
     public function splitLines(): Arr
     {
-        return Strings::splitLines($this->value);
+        return new Arr(explode("\n", str_replace(["\r\n", "\r"], "\n", $this->value)));
     }
 
     public function sub(mixed $start, mixed $length = null): self
     {
-        $this->value = Strings::sub($this->value, $start, $length);
+        $this->value = $length !== null
+            ? substr($this->value, (int) $start, (int) $length)
+            : substr($this->value, (int) $start);
         return $this;
     }
 
     public function indexOf(mixed $needle, bool $caseSensitive = true): int|null
     {
-        return Strings::indexOf($this->value, $needle, $caseSensitive);
+        $pos = $caseSensitive
+            ? strpos($this->value, (string) $needle)
+            : stripos($this->value, (string) $needle);
+        return $pos !== false ? $pos : null;
     }
 
     public function lastIndexOf(mixed $needle, bool $caseSensitive = true): int|null
     {
-        return Strings::lastIndexOf($this->value, $needle, $caseSensitive);
+        $pos = $caseSensitive
+            ? strrpos($this->value, (string) $needle)
+            : strripos($this->value, (string) $needle);
+        return $pos !== false ? $pos : null;
     }
 
     public function trim(mixed $charList = null, bool $multibyte = false): self
     {
-        $this->value = Strings::trim($this->value, $charList, $multibyte);
+        if ($charList === null) {
+            $this->value = trim($this->value);
+            return $this;
+        }
+        $chars = (string) $charList;
+        if ($multibyte) {
+            $escaped = str_replace('/', '\/', preg_quote($chars));
+            $this->value = (string) preg_replace("/(^[$escaped]+)|([$escaped]+$)/us", '', $this->value);
+        } else {
+            $this->value = trim($this->value, $chars);
+        }
         return $this;
     }
 
     public function addSlashes(): self
     {
-        $this->value = Strings::addSlashes($this->value);
+        $this->value = addslashes($this->value);
         return $this;
     }
 
     public function removeSlashes(): self
     {
-        $this->value = Strings::removeSlashes($this->value);
+        $this->value = stripslashes($this->value);
         return $this;
     }
 
     public function toBase64(): self
     {
-        $this->value = Strings::toBase64($this->value);
+        $this->value = base64_encode($this->value);
         return $this;
     }
 
@@ -235,8 +273,8 @@ final class StringObject
      */
     public static function fromBase64(mixed $value): self|null
     {
-        $decoded = Strings::fromBase64($value);
-        return $decoded !== null ? new self($decoded) : null;
+        $decoded = base64_decode((string) $value, strict: true);
+        return $decoded !== false ? new self($decoded) : null;
     }
 
     /**
@@ -244,7 +282,7 @@ final class StringObject
      */
     public function toHex(): self
     {
-        $this->value = Strings::toHex($this->value);
+        $this->value = bin2hex($this->value);
         return $this;
     }
 
@@ -255,25 +293,26 @@ final class StringObject
      */
     public static function fromHex(mixed $value): self|null
     {
-        $decoded = Strings::fromHex($value);
-        return $decoded !== null ? new self($decoded) : null;
+        $decoded = hex2bin((string) $value);
+        return $decoded !== false ? new self($decoded) : null;
     }
 
     public function getOnlyNumbers(mixed $whitelist = ''): self
     {
-        $this->value = Strings::getOnlyNumbers($this->value, $whitelist);
+        $escaped = preg_quote((string) $whitelist, '/');
+        $this->value = (string) preg_replace("/[^0-9{$escaped}]/", '', $this->value);
         return $this;
     }
 
     public function getOnlyLetters(): self
     {
-        $this->value = Strings::getOnlyLetters($this->value);
+        $this->value = (string) preg_replace('/[^a-zA-Z]+/', '', $this->value);
         return $this;
     }
 
     public function getOnlyLettersAndNumbers(): self
     {
-        $this->value = Strings::getOnlyLettersAndNumbers($this->value);
+        $this->value = (string) preg_replace('/[^a-zA-Z0-9]+/', '', $this->value);
         return $this;
     }
 
@@ -282,7 +321,9 @@ final class StringObject
      */
     public function removeSpaces(bool $includeLineBreaks = true): self
     {
-        $this->value = Strings::removeSpaces($this->value, $includeLineBreaks);
+        $str     = trim($this->value);
+        $pattern = $includeLineBreaks ? '/[ \t\r\n]+/' : '/[ \t]+/';
+        $this->value = (string) preg_replace($pattern, '', $str);
         return $this;
     }
 
@@ -291,7 +332,9 @@ final class StringObject
      */
     public function removeSpecialCharacters(bool $includeUnderline = true): self
     {
-        $this->value = Strings::removeSpecialCharacters($this->value, $includeUnderline);
+        $ul      = $includeUnderline ? '_' : '';
+        $pattern = '/[-`~!@#$%^&*' . $ul . '()+={}\\[\\]\\\\|;:\'",.><?\/]+/';
+        $this->value = (string) preg_replace($pattern, '', $this->value);
         return $this;
     }
 
@@ -300,7 +343,7 @@ final class StringObject
      */
     public function removeNumbers(): self
     {
-        $this->value = Strings::removeNumbers($this->value);
+        $this->value = (string) preg_replace('/[0-9]+/', '', $this->value);
         return $this;
     }
 
@@ -309,7 +352,14 @@ final class StringObject
      */
     public function stripHtmlTags(bool $cleanContent = false): self
     {
-        $this->value = Strings::stripHtmlTags($this->value, $cleanContent);
+        if ($cleanContent) {
+            $str = str_replace(['<', '>'], [' <', '> '], $this->value);
+            $str = strip_tags($str);
+            $str = (string) preg_replace('/\s+/', ' ', $str);
+            $this->value = trim($str);
+        } else {
+            $this->value = strip_tags($this->value);
+        }
         return $this;
     }
 
@@ -329,7 +379,7 @@ final class StringObject
      */
     public function limit(mixed $limit = 10): self
     {
-        $this->value = Strings::limit($this->value, $limit);
+        $this->value = substr($this->value, 0, (int) $limit);
         return $this;
     }
 
@@ -358,12 +408,12 @@ final class StringObject
 
     public function toInt(): int
     {
-        return Ints::parse($this->value);
+        return (int) $this->value;
     }
 
     public function toFloat(): float
     {
-        return Floats::parse($this->value);
+        return (float) $this->value;
     }
 
     public function toBool(): bool|null

@@ -39,7 +39,7 @@ final class IntObject
      */
     public function clamp(int $min, int $max): self
     {
-        $this->value = Ints::clamp($this->value, $min, $max);
+        $this->value = max($min, min($max, $this->value));
         return $this;
     }
 
@@ -48,7 +48,7 @@ final class IntObject
      */
     public function between(int $min, int $max): bool
     {
-        return Ints::between($this->value, $min, $max);
+        return $this->value >= $min && $this->value <= $max;
     }
 
     /**
@@ -56,7 +56,7 @@ final class IntObject
      */
     public function isEven(): bool
     {
-        return Ints::isEven($this->value);
+        return ($this->value & 1) === 0;
     }
 
     /**
@@ -64,7 +64,7 @@ final class IntObject
      */
     public function isOdd(): bool
     {
-        return Ints::isOdd($this->value);
+        return ($this->value & 1) !== 0;
     }
 
     /**
@@ -155,7 +155,11 @@ final class IntObject
 
     public function toBool(): bool|null
     {
-        return Bools::parse($this->value);
+        return match ($this->value) {
+            1       => true,
+            0       => false,
+            default => null,
+        };
     }
 
     public function __toString(): string

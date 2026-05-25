@@ -111,6 +111,10 @@ final class BoolObject
 
     public function __toString(): string
     {
-        return $this->toString();
+        return match ($this->value) {
+            true    => 'true',
+            false   => 'false',
+            default => 'null',
+        };
     }
 }

@@ -39,7 +39,7 @@ final class FloatObject
      */
     public function clamp(float $min, float $max): self
     {
-        $this->value = Floats::clamp($this->value, $min, $max);
+        $this->value = max($min, min($max, $this->value));
         return $this;
     }
 
@@ -48,7 +48,7 @@ final class FloatObject
      */
     public function between(float $min, float $max): bool
     {
-        return Floats::between($this->value, $min, $max);
+        return $this->value >= $min && $this->value <= $max;
     }
 
     /**
@@ -58,7 +58,7 @@ final class FloatObject
      */
     public function round(int $precision = 0, int $mode = PHP_ROUND_HALF_UP): self
     {
-        $this->value = Floats::round($this->value, $precision, $mode);
+        $this->value = round($this->value, $precision, $mode);
         return $this;
     }
 
@@ -67,7 +67,7 @@ final class FloatObject
      */
     public function floor(): self
     {
-        $this->value = Floats::floor($this->value);
+        $this->value = floor($this->value);
         return $this;
     }
 
@@ -76,7 +76,7 @@ final class FloatObject
      */
     public function ceil(): self
     {
-        $this->value = Floats::ceil($this->value);
+        $this->value = ceil($this->value);
         return $this;
     }
 
@@ -159,7 +159,7 @@ final class FloatObject
      */
     public function format(int $decimals = 2, string $decimalSep = '.', string $thousandsSep = ''): string
     {
-        return Floats::format($this->value, $decimals, $decimalSep, $thousandsSep);
+        return number_format($this->value, $decimals, $decimalSep, $thousandsSep);
     }
 
     public function toFloat(): float
@@ -179,7 +179,11 @@ final class FloatObject
 
     public function toBool(): bool|null
     {
-        return Bools::parse((int) $this->value);
+        return match ((int) $this->value) {
+            1       => true,
+            0       => false,
+            default => null,
+        };
     }
 
     public function __toString(): string

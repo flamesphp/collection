@@ -19,6 +19,9 @@ namespace Flames\Collection;
  */
 final class Arr extends \ArrayObject
 {
+    /** Tracks the highest numeric key ever set, mirrors PHP's internal array pointer. */
+    private int $autoKey = -1;
+
     /**
      * @param array|self|null $value  Initial data, or null for an empty collection.
      */
@@ -29,6 +32,10 @@ final class Arr extends \ArrayObject
         }
 
         parent::__construct($value, \ArrayObject::ARRAY_AS_PROPS);
+
+        if (!empty($value)) {
+            $this->autoKey = $this->getLastNumberKey() ?? -1;
+        }
     }
 
     /**
@@ -65,35 +72,45 @@ final class Arr extends \ArrayObject
 
     /**
      * Resolves virtual properties (length, count, first, last).
+     * Uses match for a jump-table dispatch instead of sequential if-checks.
      */
     public function offsetGet(mixed $key): mixed
     {
         $k = (string) $key;
-
-        if (($k === 'length' || $k === 'count') && !parent::offsetExists($k)) {
-            return $this->count();
-        }
-        if ($k === 'first' && !parent::offsetExists($k)) {
-            return $this->getFirst();
-        }
-        if ($k === 'last' && !parent::offsetExists($k)) {
-            return $this->getLast();
-        }
-
-        return @parent::offsetGet($k);
+        return match ($k) {
+            'length', 'count' => !parent::offsetExists($k) ? $this->count()    : @parent::offsetGet($k),
+            'first'           => !parent::offsetExists($k) ? $this->getFirst() : @parent::offsetGet($k),
+            'last'            => !parent::offsetExists($k) ? $this->getLast()  : @parent::offsetGet($k),
+            default           => @parent::offsetGet($k),
+        };
     }
 
     /**
      * Auto-increments the integer key when appending (empty-key syntax).
+     * Maintains an internal counter so appends are O(1) instead of O(n).
      */
     public function offsetSet(mixed $key, mixed $value): void
     {
         $k = (string) $key;
         if ($k === '') {
-            $last = $this->getLastNumberKey();
-            $k    = (string) ($last === null ? 0 : $last + 1);
+            $k = (string) (++$this->autoKey);
+        } elseif (is_numeric($key)) {
+            $intKey = (int) $key;
+            if ($intKey > $this->autoKey) {
+                $this->autoKey = $intKey;
+            }
         }
         parent::offsetSet($k, $value);
+    }
+
+    /**
+     * Replaces the underlying storage and resets the auto-key counter.
+     */
+    public function exchangeArray(array|object $array): array
+    {
+        $old = parent::exchangeArray($array);
+        $this->autoKey = $this->getLastNumberKey() ?? -1;
+        return $old;
     }
 
     /**
@@ -117,12 +134,7 @@ final class Arr extends \ArrayObject
      */
     public function contains(mixed $value): bool
     {
-        foreach ($this as $item) {
-            if ($value === $item) {
-                return true;
-            }
-        }
-        return false;
+        return in_array($value, (array) $this, true);
     }
 
     /**
@@ -138,7 +150,7 @@ final class Arr extends \ArrayObject
      */
     public function indexOf(mixed $value): int|string|null
     {
-        foreach ($this as $key => $item) {
+        foreach ((array) $this as $key => $item) {
             if ($value === $item) {
                 return $key;
             }
@@ -152,7 +164,7 @@ final class Arr extends \ArrayObject
     public function lastIndexOf(mixed $value): int|string|null
     {
         $found = null;
-        foreach ($this as $key => $item) {
+        foreach ((array) $this as $key => $item) {
             if ($value === $item) {
                 $found = $key;
             }
@@ -173,7 +185,7 @@ final class Arr extends \ArrayObject
     public function find(\Closure $delegate, bool $isKeyValue = false): mixed
     {
         if ($isKeyValue === false) {
-            foreach ($this as $value) {
+            foreach ((array) $this as $value) {
                 if ($delegate($value) === true) {
                     return $value;
                 }
@@ -181,7 +193,7 @@ final class Arr extends \ArrayObject
             return null;
         }
 
-        foreach ($this as $key => $value) {
+        foreach ((array) $this as $key => $value) {
             if ($delegate($key, $value) === true) {
                 return new self(['key' => $key, 'value' => $value]);
             }
@@ -222,8 +234,8 @@ final class Arr extends \ArrayObject
         if ($this->count() === 0) {
             return null;
         }
-        $keys = array_keys((array) $this);
-        return parent::offsetGet($keys[0]);
+        $key = array_key_first((array) $this);
+        return parent::offsetGet((string) $key);
     }
 
     /**
@@ -231,12 +243,11 @@ final class Arr extends \ArrayObject
      */
     public function getLast(): mixed
     {
-        $count = $this->count();
-        if ($count === 0) {
+        if ($this->count() === 0) {
             return null;
         }
-        $keys = array_keys((array) $this);
-        return parent::offsetGet($keys[$count - 1]);
+        $key = array_key_last((array) $this);
+        return parent::offsetGet((string) $key);
     }
 
     /**
@@ -268,8 +279,8 @@ final class Arr extends \ArrayObject
     public function removeKey(mixed $key): self
     {
         $k = (string) $key;
-        if ($k !== '' && ($this->offsetExists($k) || isset($this[$k]))) {
-            unset($this[$k]);
+        if ($k !== '' && $this->offsetExists($k)) {
+            $this->offsetUnset($k);
         }
         return $this;
     }
@@ -279,9 +290,9 @@ final class Arr extends \ArrayObject
      */
     public function remove(mixed $value): self
     {
-        foreach ($this as $key => $item) {
+        foreach ((array) $this as $key => $item) {
             if ($value === $item) {
-                unset($this[$key]);
+                parent::offsetUnset((string) $key);
             }
         }
         return $this;
@@ -292,9 +303,7 @@ final class Arr extends \ArrayObject
      */
     public function clear(): self
     {
-        foreach (array_keys((array) $this) as $key) {
-            unset($this[$key]);
-        }
+        $this->exchangeArray([]);
         return $this;
     }
 
@@ -309,17 +318,7 @@ final class Arr extends \ArrayObject
         if ($limit <= 0) {
             return new self();
         }
-
-        $result = new self();
-        $count  = 0;
-        foreach ($this as $key => $value) {
-            if ($count >= $limit) {
-                break;
-            }
-            $preserveKeys ? $result[$key] = $value : $result[] = $value;
-            $count++;
-        }
-        return $result;
+        return new self(array_slice((array) $this, 0, $limit, $preserveKeys));
     }
 
     /**
@@ -329,11 +328,12 @@ final class Arr extends \ArrayObject
      */
     public function map(\Closure $delegate): self
     {
-        $result = new self();
-        foreach ($this as $key => $value) {
+        $arr    = (array) $this;
+        $result = [];
+        foreach ($arr as $key => $value) {
             $result[$key] = $delegate($value, $key);
         }
-        return $result;
+        return new self($result);
     }
 
     /**
@@ -343,13 +343,14 @@ final class Arr extends \ArrayObject
      */
     public function filter(\Closure $delegate): self
     {
-        $result = new self();
-        foreach ($this as $key => $value) {
+        $arr    = (array) $this;
+        $result = [];
+        foreach ($arr as $key => $value) {
             if ($delegate($value, $key) === true) {
                 $result[$key] = $value;
             }
         }
-        return $result;
+        return new self($result);
     }
 
     /**
@@ -359,7 +360,7 @@ final class Arr extends \ArrayObject
      */
     public function each(\Closure $delegate): self
     {
-        foreach ($this as $key => $value) {
+        foreach ((array) $this as $key => $value) {
             $delegate($value, $key);
         }
         return $this;
@@ -470,6 +471,7 @@ final class Arr extends \ArrayObject
 
     /**
      * Encodes the collection as a JSON string.
+     * @throws \JsonException
      */
     public function toJson(): string
     {
@@ -484,6 +486,9 @@ final class Arr extends \ArrayObject
         return clone $this;
     }
 
+    /**
+     * @throws \JsonException
+     */
     public function __toString(): string
     {
         return json_encode($this->toArray(), JSON_THROW_ON_ERROR);

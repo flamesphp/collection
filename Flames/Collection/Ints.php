@@ -35,7 +35,7 @@ final class Ints
      */
     public static function isEven(int $value): bool
     {
-        return ($value % 2) === 0;
+        return ($value & 1) === 0;
     }
 
     /**
@@ -43,7 +43,7 @@ final class Ints
      */
     public static function isOdd(int $value): bool
     {
-        return ($value % 2) !== 0;
+        return ($value & 1) !== 0;
     }
 
     /**
