@@ -29,10 +29,10 @@ final class BoolObject
 
     public function __get(string $name): mixed
     {
-        return match (strtolower($name)) {
-            'value' => $this->value,
-            default => null,
-        };
+        if ($name === 'value') {
+            return $this->value;
+        }
+        return strtolower($name) === 'value' ? $this->value : null;
     }
 
     /**

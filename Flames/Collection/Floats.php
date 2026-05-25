@@ -31,12 +31,80 @@ final class Floats
     }
 
     /**
+     * Returns true when $value equals zero.
+     */
+    public static function isZero(float $value): bool
+    {
+        return $value === 0.0;
+    }
+
+    /**
+     * Returns true when $value is greater than zero.
+     */
+    public static function isPositive(float $value): bool
+    {
+        return $value > 0.0;
+    }
+
+    /**
+     * Returns true when $value is less than zero.
+     */
+    public static function isNegative(float $value): bool
+    {
+        return $value < 0.0;
+    }
+
+    /**
+     * Adds $amount to $value and returns the result.
+     */
+    public static function add(float $value, float $amount): float
+    {
+        return $value + $amount;
+    }
+
+    /**
+     * Subtracts $amount from $value and returns the result.
+     */
+    public static function subtract(float $value, float $amount): float
+    {
+        return $value - $amount;
+    }
+
+    /**
+     * Multiplies $value by $factor and returns the result.
+     */
+    public static function multiply(float $value, float $factor): float
+    {
+        return $value * $factor;
+    }
+
+    /**
+     * Divides $value by $divisor and returns the result.
+     *
+     * @throws \DivisionByZeroError when $divisor is 0.
+     */
+    public static function divide(float $value, float $divisor): float
+    {
+        if ($divisor === 0.0) {
+            throw new \DivisionByZeroError('Division by zero.');
+        }
+        return $value / $divisor;
+    }
+
+    /**
+     * Returns the absolute value of $value.
+     */
+    public static function abs(float $value): float
+    {
+        return abs($value);
+    }
+
+    /**
      * Rounds $value to $precision decimal places.
      *
-     * Accepts PHP_ROUND_HALF_UP, PHP_ROUND_HALF_DOWN, PHP_ROUND_HALF_EVEN,
-     * or PHP_ROUND_HALF_ODD for $mode.
+     * Accepts a \RoundingMode enum (PHP 8.4+) or the legacy PHP_ROUND_HALF_* int constants.
      */
-    public static function round(float $value, int $precision = 0, int $mode = PHP_ROUND_HALF_UP): float
+    public static function round(float $value, int $precision = 0, \RoundingMode|int $mode = \RoundingMode::HalfAwayFromZero): float
     {
         return round($value, $precision, $mode);
     }

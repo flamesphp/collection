@@ -34,10 +34,14 @@ final class Bools
         }
 
         if (is_string($value)) {
-            return match (strtolower($value)) {
-                'true',  'yes', '1' => true,
-                'false', 'no',  '0' => false,
-                default             => null,
+            return match ($value) {
+                'true', 'yes', '1' => true,
+                'false', 'no', '0' => false,
+                default            => match (strtolower($value)) {
+                    'true', 'yes', '1' => true,
+                    'false', 'no', '0' => false,
+                    default            => null,
+                },
             };
         }
 
@@ -58,5 +62,21 @@ final class Bools
     public static function isFalse(mixed $value): bool
     {
         return self::parse($value) === false;
+    }
+
+    /**
+     * Returns true when $value parses to null (ambiguous / unresolved).
+     */
+    public static function isNull(mixed $value): bool
+    {
+        return self::parse($value) === null;
+    }
+
+    /**
+     * Negates $value: true → false, false → true, null → null.
+     */
+    public static function negate(bool|null $value): bool|null
+    {
+        return $value !== null ? !$value : null;
     }
 }

@@ -238,8 +238,8 @@ final class Strings
      */
     public static function splitLength(mixed $value, mixed $length): Arr
     {
-        $chunks = str_split((string) $value, max(1, (int) $length));
-        return new Arr($chunks !== false ? $chunks : []);
+        // str_split never returns false when length >= 1 (PHP 8+)
+        return new Arr(str_split((string) $value, max(1, (int) $length)) ?: []);
     }
 
     /**
@@ -436,15 +436,22 @@ final class Strings
             return mb_substr($str, 0, $limit, 'UTF-8');
         }
 
-        $words   = explode(' ', $str);
-        $result  = '';
+        // Pre-slice to $limit chars so the loop never inspects more text than needed
+        $str    = mb_substr($str, 0, $limit, 'UTF-8');
+        $words  = explode(' ', $str);
+        $result = '';
+        $len    = 0;
+
         foreach ($words as $word) {
-            $candidate = $result === '' ? $word : $result . ' ' . $word;
-            if (mb_strlen($candidate, 'UTF-8') > $limit) {
+            $wordLen   = mb_strlen($word, 'UTF-8');
+            $candidate = $result === '' ? $wordLen : $len + 1 + $wordLen;
+            if ($candidate > $limit) {
                 break;
             }
-            $result = $candidate;
+            $result = $result === '' ? $word : $result . ' ' . $word;
+            $len    = $candidate;
         }
+
         return $result;
     }
 
@@ -458,15 +465,36 @@ final class Strings
 
     /**
      * Generates a cryptographically random alphanumeric string of $length characters.
+     *
+     * Uses a single random_bytes() call (one CSPRNG syscall) instead of invoking
+     * random_int() once per character. Bytes >= 248 are rejected to ensure a
+     * perfectly uniform distribution across the 62-character alphabet
+     * (248 = 4 × 62, the largest multiple of 62 that fits in a byte).
      */
     public static function getRandom(int $length = 32): string
     {
-        $chars  = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        $max    = strlen($chars) - 1;
-        $result = '';
-        for ($i = 0; $i < $length; $i++) {
-            $result .= $chars[random_int(0, $max)];
+        if ($length <= 0) {
+            return '';
         }
+
+        $chars  = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        $result = '';
+        $count  = 0;
+
+        while ($count < $length) {
+            $needed = $length - $count;
+            // ~3.1 % rejection rate; extra headroom avoids a second syscall in practice
+            $bytes = random_bytes((int) ceil($needed * 1.07) + 8);
+            $bLen  = strlen($bytes);
+            for ($i = 0; $i < $bLen && $count < $length; $i++) {
+                $b = ord($bytes[$i]);
+                if ($b < 248) {
+                    $result .= $chars[$b % 62];
+                    $count++;
+                }
+            }
+        }
+
         return $result;
     }
 
@@ -480,14 +508,12 @@ final class Strings
     {
         $str = self::removeAccents((string) $value);
         $str = mb_strtolower($str, 'UTF-8');
-        $d   = preg_quote($delimiter, '/');
         $str = (string) preg_replace('/[^a-z0-9]+/', $delimiter, $str);
-        $str = (string) preg_replace('/^' . $d . '+|' . $d . '+$/', '', $str);
-        return $str;
+        return trim($str, $delimiter);
     }
 
     /**
-     * Replaces accented / diacritic characters with their plain ASCII equivalents.
+     * Removes accented / diacritic characters with their plain ASCII equivalents.
      *
      * Supports UTF-8 and ISO-8859-1 encoded strings.
      */
@@ -498,108 +524,7 @@ final class Strings
             return $str;
         }
         return mb_check_encoding($str, 'UTF-8')
-            ? self::removeAccentsUtf8($str)
-            : self::removeAccentsLatin($str);
-    }
-
-    private static function removeAccentsUtf8(string $str): string
-    {
-        static $map = null;
-        if ($map === null) {
-            $map = [
-                "\xc2\xaa" => 'a',  "\xc2\xba" => 'o',
-                "\xc3\x80" => 'A',  "\xc3\x81" => 'A',  "\xc3\x82" => 'A',
-                "\xc3\x83" => 'A',  "\xc3\x84" => 'A',  "\xc3\x85" => 'A',
-                "\xc3\x86" => 'AE', "\xc3\x87" => 'C',  "\xc3\x88" => 'E',
-                "\xc3\x89" => 'E',  "\xc3\x8a" => 'E',  "\xc3\x8b" => 'E',
-                "\xc3\x8c" => 'I',  "\xc3\x8d" => 'I',  "\xc3\x8e" => 'I',
-                "\xc3\x8f" => 'I',  "\xc3\x90" => 'D',  "\xc3\x91" => 'N',
-                "\xc3\x92" => 'O',  "\xc3\x93" => 'O',  "\xc3\x94" => 'O',
-                "\xc3\x95" => 'O',  "\xc3\x96" => 'O',  "\xc3\x98" => 'O',
-                "\xc3\x99" => 'U',  "\xc3\x9a" => 'U',  "\xc3\x9b" => 'U',
-                "\xc3\x9c" => 'U',  "\xc3\x9d" => 'Y',  "\xc3\x9e" => 'TH',
-                "\xc3\x9f" => 's',  "\xc3\xa0" => 'a',  "\xc3\xa1" => 'a',
-                "\xc3\xa2" => 'a',  "\xc3\xa3" => 'a',  "\xc3\xa4" => 'a',
-                "\xc3\xa5" => 'a',  "\xc3\xa6" => 'ae', "\xc3\xa7" => 'c',
-                "\xc3\xa8" => 'e',  "\xc3\xa9" => 'e',  "\xc3\xaa" => 'e',
-                "\xc3\xab" => 'e',  "\xc3\xac" => 'i',  "\xc3\xad" => 'i',
-                "\xc3\xae" => 'i',  "\xc3\xaf" => 'i',  "\xc3\xb0" => 'd',
-                "\xc3\xb1" => 'n',  "\xc3\xb2" => 'o',  "\xc3\xb3" => 'o',
-                "\xc3\xb4" => 'o',  "\xc3\xb5" => 'o',  "\xc3\xb6" => 'o',
-                "\xc3\xb8" => 'o',  "\xc3\xb9" => 'u',  "\xc3\xba" => 'u',
-                "\xc3\xbb" => 'u',  "\xc3\xbc" => 'u',  "\xc3\xbd" => 'y',
-                "\xc3\xbe" => 'th', "\xc3\xbf" => 'y',
-                "\xc4\x80" => 'A',  "\xc4\x81" => 'a',  "\xc4\x82" => 'A',
-                "\xc4\x83" => 'a',  "\xc4\x84" => 'A',  "\xc4\x85" => 'a',
-                "\xc4\x86" => 'C',  "\xc4\x87" => 'c',  "\xc4\x88" => 'C',
-                "\xc4\x89" => 'c',  "\xc4\x8a" => 'C',  "\xc4\x8b" => 'c',
-                "\xc4\x8c" => 'C',  "\xc4\x8d" => 'c',  "\xc4\x8e" => 'D',
-                "\xc4\x8f" => 'd',  "\xc4\x90" => 'D',  "\xc4\x91" => 'd',
-                "\xc4\x92" => 'E',  "\xc4\x93" => 'e',  "\xc4\x94" => 'E',
-                "\xc4\x95" => 'e',  "\xc4\x96" => 'E',  "\xc4\x97" => 'e',
-                "\xc4\x98" => 'E',  "\xc4\x99" => 'e',  "\xc4\x9a" => 'E',
-                "\xc4\x9b" => 'e',  "\xc4\x9c" => 'G',  "\xc4\x9d" => 'g',
-                "\xc4\x9e" => 'G',  "\xc4\x9f" => 'g',  "\xc4\xa0" => 'G',
-                "\xc4\xa1" => 'g',  "\xc4\xa2" => 'G',  "\xc4\xa3" => 'g',
-                "\xc4\xa4" => 'H',  "\xc4\xa5" => 'h',  "\xc4\xa6" => 'H',
-                "\xc4\xa7" => 'h',  "\xc4\xa8" => 'I',  "\xc4\xa9" => 'i',
-                "\xc4\xaa" => 'I',  "\xc4\xab" => 'i',  "\xc4\xac" => 'I',
-                "\xc4\xad" => 'i',  "\xc4\xae" => 'I',  "\xc4\xaf" => 'i',
-                "\xc4\xb0" => 'I',  "\xc4\xb1" => 'i',  "\xc4\xb2" => 'IJ',
-                "\xc4\xb3" => 'ij', "\xc4\xb4" => 'J',  "\xc4\xb5" => 'j',
-                "\xc4\xb6" => 'K',  "\xc4\xb7" => 'k',  "\xc4\xb8" => 'k',
-                "\xc4\xb9" => 'L',  "\xc4\xba" => 'l',  "\xc4\xbb" => 'L',
-                "\xc4\xbc" => 'l',  "\xc4\xbd" => 'L',  "\xc4\xbe" => 'l',
-                "\xc4\xbf" => 'L',  "\xc5\x80" => 'l',  "\xc5\x81" => 'L',
-                "\xc5\x82" => 'l',  "\xc5\x83" => 'N',  "\xc5\x84" => 'n',
-                "\xc5\x85" => 'N',  "\xc5\x86" => 'n',  "\xc5\x87" => 'N',
-                "\xc5\x88" => 'n',  "\xc5\x89" => 'N',  "\xc5\x8a" => 'n',
-                "\xc5\x8b" => 'N',  "\xc5\x8c" => 'O',  "\xc5\x8d" => 'o',
-                "\xc5\x8e" => 'O',  "\xc5\x8f" => 'o',  "\xc5\x90" => 'O',
-                "\xc5\x91" => 'o',  "\xc5\x92" => 'OE', "\xc5\x93" => 'oe',
-                "\xc5\x94" => 'R',  "\xc5\x95" => 'r',  "\xc5\x96" => 'R',
-                "\xc5\x97" => 'r',  "\xc5\x98" => 'R',  "\xc5\x99" => 'r',
-                "\xc5\x9a" => 'S',  "\xc5\x9b" => 's',  "\xc5\x9c" => 'S',
-                "\xc5\x9d" => 's',  "\xc5\x9e" => 'S',  "\xc5\x9f" => 's',
-                "\xc5\xa0" => 'S',  "\xc5\xa1" => 's',  "\xc5\xa2" => 'T',
-                "\xc5\xa3" => 't',  "\xc5\xa4" => 'T',  "\xc5\xa5" => 't',
-                "\xc5\xa6" => 'T',  "\xc5\xa7" => 't',  "\xc5\xa8" => 'U',
-                "\xc5\xa9" => 'u',  "\xc5\xaa" => 'U',  "\xc5\xab" => 'u',
-                "\xc5\xac" => 'U',  "\xc5\xad" => 'u',  "\xc5\xae" => 'U',
-                "\xc5\xaf" => 'u',  "\xc5\xb0" => 'U',  "\xc5\xb1" => 'u',
-                "\xc5\xb2" => 'U',  "\xc5\xb3" => 'u',  "\xc5\xb4" => 'W',
-                "\xc5\xb5" => 'w',  "\xc5\xb6" => 'Y',  "\xc5\xb7" => 'y',
-                "\xc5\xb8" => 'Y',  "\xc5\xb9" => 'Z',  "\xc5\xba" => 'z',
-                "\xc5\xbb" => 'Z',  "\xc5\xbc" => 'z',  "\xc5\xbd" => 'Z',
-                "\xc5\xbe" => 'z',  "\xc5\xbf" => 's',
-                "\xc8\x98" => 'S',  "\xc8\x99" => 's',
-                "\xc8\x9a" => 'T',  "\xc8\x9b" => 't',
-                "\xe2\x82\xac" => 'E',
-                "\xc2\xa3"     => '',
-            ];
-        }
-        return strtr($str, $map);
-    }
-
-    private static function removeAccentsLatin(string $str): string
-    {
-        $in  = chr(128) . chr(131) . chr(138) . chr(142) . chr(154) . chr(158)
-             . chr(159) . chr(162) . chr(165) . chr(181) . chr(192) . chr(193)
-             . chr(194) . chr(195) . chr(196) . chr(197) . chr(199) . chr(200)
-             . chr(201) . chr(202) . chr(203) . chr(204) . chr(205) . chr(206)
-             . chr(207) . chr(209) . chr(210) . chr(211) . chr(212) . chr(213)
-             . chr(214) . chr(216) . chr(217) . chr(218) . chr(219) . chr(220)
-             . chr(221) . chr(224) . chr(225) . chr(226) . chr(227) . chr(228)
-             . chr(229) . chr(231) . chr(232) . chr(233) . chr(234) . chr(235)
-             . chr(236) . chr(237) . chr(238) . chr(239) . chr(241) . chr(242)
-             . chr(243) . chr(244) . chr(245) . chr(246) . chr(248) . chr(249)
-             . chr(250) . chr(251) . chr(252) . chr(253) . chr(255);
-
-        $out = 'EfSZszYcYuAAAAAACEEEEIIIINOOOOOOUUUUYaaaaaaceeeeiiiinoooooouuuuyy';
-        $str = strtr($str, $in, $out);
-
-        $dIn  = [chr(140), chr(156), chr(198), chr(208), chr(222), chr(223), chr(230), chr(240), chr(254)];
-        $dOut = ['OE',     'oe',     'AE',     'DH',     'TH',     'ss',     'ae',     'dh',     'th'];
-        return str_replace($dIn, $dOut, $str);
+            ? Strings\AccentsRemover::utf8($str)
+            : Strings\AccentsRemover::latin($str);
     }
 }

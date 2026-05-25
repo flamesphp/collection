@@ -28,10 +28,10 @@ final class IntObject
 
     public function __get(string $name): mixed
     {
-        return match (strtolower($name)) {
-            'value' => $this->value,
-            default => null,
-        };
+        if ($name === 'value') {
+            return $this->value;
+        }
+        return strtolower($name) === 'value' ? $this->value : null;
     }
 
     /**
@@ -125,6 +125,10 @@ final class IntObject
      */
     public function divide(int $divisor): self
     {
+        if ($divisor === 0) {
+            $this->value = 0;
+            return $this;
+        }
         $this->value = intdiv($this->value, $divisor);
         return $this;
     }

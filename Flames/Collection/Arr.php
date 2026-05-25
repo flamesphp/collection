@@ -78,10 +78,10 @@ final class Arr extends \ArrayObject
     {
         $k = (string) $key;
         return match ($k) {
-            'length', 'count' => !parent::offsetExists($k) ? $this->count()    : @parent::offsetGet($k),
-            'first'           => !parent::offsetExists($k) ? $this->getFirst() : @parent::offsetGet($k),
-            'last'            => !parent::offsetExists($k) ? $this->getLast()  : @parent::offsetGet($k),
-            default           => @parent::offsetGet($k),
+            'length', 'count' => !parent::offsetExists($k) ? $this->count()    : parent::offsetGet($k),
+            'first'           => !parent::offsetExists($k) ? $this->getFirst() : parent::offsetGet($k),
+            'last'            => !parent::offsetExists($k) ? $this->getLast()  : parent::offsetGet($k),
+            default           => parent::offsetExists($k)  ? parent::offsetGet($k) : null,
         };
     }
 
@@ -94,8 +94,8 @@ final class Arr extends \ArrayObject
         $k = (string) $key;
         if ($k === '') {
             $k = (string) (++$this->autoKey);
-        } elseif (is_numeric($key)) {
-            $intKey = (int) $key;
+        } elseif (is_numeric($k)) {
+            $intKey = (int) $k;
             if ($intKey > $this->autoKey) {
                 $this->autoKey = $intKey;
             }
@@ -147,15 +147,12 @@ final class Arr extends \ArrayObject
 
     /**
      * Returns the key of the first element identical (===) to $value, or null.
+     * Uses the C-level array_search for maximum throughput.
      */
     public function indexOf(mixed $value): int|string|null
     {
-        foreach ((array) $this as $key => $item) {
-            if ($value === $item) {
-                return $key;
-            }
-        }
-        return null;
+        $key = array_search($value, (array) $this, true);
+        return $key !== false ? $key : null;
     }
 
     /**
@@ -184,21 +181,16 @@ final class Arr extends \ArrayObject
      */
     public function find(\Closure $delegate, bool $isKeyValue = false): mixed
     {
+        $arr = (array) $this;
+
         if ($isKeyValue === false) {
-            foreach ((array) $this as $value) {
-                if ($delegate($value) === true) {
-                    return $value;
-                }
-            }
-            return null;
+            // Wrap to preserve strict === true semantics from the original API
+            return array_find($arr, static fn($v) => $delegate($v) === true);
         }
 
-        foreach ((array) $this as $key => $value) {
-            if ($delegate($key, $value) === true) {
-                return new self(['key' => $key, 'value' => $value]);
-            }
-        }
-        return null;
+        // Delegate signature is fn($key, $value); array_find_key uses fn($value, $key)
+        $key = array_find_key($arr, static fn($v, $k) => $delegate($k, $v) === true);
+        return $key !== null ? new self(['key' => $key, 'value' => $arr[$key]]) : null;
     }
 
     /**
@@ -210,20 +202,21 @@ final class Arr extends \ArrayObject
     }
 
     /**
-     * Returns the highest numeric key present, or null when none exist.
+     * Returns the highest numeric key currently present, or null when none exist.
+     * Single-pass O(n) — avoids allocating an intermediate filtered array.
      */
     public function getLastNumberKey(): int|null
     {
-        $top  = null;
+        $max = null;
         foreach (array_keys((array) $this) as $key) {
             if (is_numeric($key)) {
-                $int = (int) $key;
-                if ($top === null || $int > $top) {
-                    $top = $int;
+                $k = (int) $key;
+                if ($max === null || $k > $max) {
+                    $max = $k;
                 }
             }
         }
-        return $top;
+        return $max;
     }
 
     /**
@@ -231,11 +224,11 @@ final class Arr extends \ArrayObject
      */
     public function getFirst(): mixed
     {
-        if ($this->count() === 0) {
+        $arr = (array) $this;
+        if ($arr === []) {
             return null;
         }
-        $key = array_key_first((array) $this);
-        return parent::offsetGet((string) $key);
+        return parent::offsetGet((string) array_key_first($arr));
     }
 
     /**
@@ -243,11 +236,11 @@ final class Arr extends \ArrayObject
      */
     public function getLast(): mixed
     {
-        if ($this->count() === 0) {
+        $arr = (array) $this;
+        if ($arr === []) {
             return null;
         }
-        $key = array_key_last((array) $this);
-        return parent::offsetGet((string) $key);
+        return parent::offsetGet((string) array_key_last($arr));
     }
 
     /**
@@ -399,11 +392,7 @@ final class Arr extends \ArrayObject
             if ($r === false) return -1;
             if ($r === true)  return 1;
             if ($r === null)  return 0;
-            return match (true) {
-                $r < 0  => -1,
-                $r > 0  => 1,
-                default => 0,
-            };
+            return $r <=> 0;
         });
         return $this;
     }

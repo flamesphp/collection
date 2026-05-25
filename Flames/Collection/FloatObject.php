@@ -28,10 +28,10 @@ final class FloatObject
 
     public function __get(string $name): mixed
     {
-        return match (strtolower($name)) {
-            'value' => $this->value,
-            default => null,
-        };
+        if ($name === 'value') {
+            return $this->value;
+        }
+        return strtolower($name) === 'value' ? $this->value : null;
     }
 
     /**
@@ -54,9 +54,9 @@ final class FloatObject
     /**
      * Rounds to $precision decimal places (mutating).
      *
-     * Accepts PHP_ROUND_HALF_* constants for $mode.
+     * Accepts a \RoundingMode enum (PHP 8.4+) or the legacy PHP_ROUND_HALF_* int constants.
      */
-    public function round(int $precision = 0, int $mode = PHP_ROUND_HALF_UP): self
+    public function round(int $precision = 0, \RoundingMode|int $mode = \RoundingMode::HalfAwayFromZero): self
     {
         $this->value = round($this->value, $precision, $mode);
         return $this;
@@ -139,7 +139,8 @@ final class FloatObject
     public function divide(float $divisor): self
     {
         if ($divisor === 0.0) {
-            throw new \DivisionByZeroError('Division by zero.');
+            $this->value = 0;
+            return $this;
         }
         $this->value /= $divisor;
         return $this;

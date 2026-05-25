@@ -34,10 +34,14 @@ final class StringObject
 
     public function __get(string $name): mixed
     {
-        return match (strtolower($name)) {
-            'length', 'count' => strlen($this->value),
-            default           => null,
-        };
+        if ($name === 'length' || $name === 'count') {
+            return strlen($this->value);
+        }
+        $lower = strtolower($name);
+        if ($lower === 'length' || $lower === 'count') {
+            return strlen($this->value);
+        }
+        return null;
     }
 
     public function length(bool $multibyte = false): int
@@ -194,8 +198,8 @@ final class StringObject
 
     public function splitLength(mixed $length): Arr
     {
-        $chunks = str_split($this->value, max(1, (int) $length));
-        return new Arr($chunks !== false ? $chunks : []);
+        // str_split never returns false when length >= 1 (PHP 8+)
+        return new Arr(str_split($this->value, max(1, (int) $length)) ?: []);
     }
 
     public function splitWords(): Arr
