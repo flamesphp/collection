@@ -1,0 +1,12 @@
+{
+    "name": "flamesphp/collection",
+    "description": "Flames: Collection",
+    "type": "library",
+    "license": "MIT",
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "require": {
+        "php": ">=8.5",
+        "ext-mbstring": "*"
+    }
+}
