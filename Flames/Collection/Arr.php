@@ -18,6 +18,13 @@ use Flames\Collection\Trait\Prototype as PrototypeTrait;
  * @property-read int   $count   Number of elements in the collection.
  * @property-read mixed $first   First element, or null when empty.
  * @property-read mixed $last    Last element, or null when empty.
+ *
+ * Memory model:
+ *   • Iteration (foreach ($arr as …)) never copies internal storage.
+ *   • Userland logic (map, filter, contains, …) iterates $this directly when possible.
+ *   • Native array_* functions require a PHP array; those paths take exactly one
+ *     shallow snapshot via copy() / mapCopy() / mutateCopy() / withCopy() per call.
+ *   • toArray() performs a deep conversion (nested Arr → array) for export/JSON only.
  */
 final class Arr extends \ArrayObject
 {
@@ -119,6 +126,43 @@ final class Arr extends \ArrayObject
     }
 
     /**
+     * Shallow snapshot of internal storage for native array_* functions.
+     *
+     * Prefer iterating with foreach ($this as …) when implementing logic in userland.
+     */
+    private function copy(): array
+    {
+        return $this->getArrayCopy();
+    }
+
+    /**
+     * @param callable(array): array $transform
+     */
+    private function mapCopy(callable $transform): self
+    {
+        return new self($transform($this->getArrayCopy()));
+    }
+
+    /**
+     * @param callable(array): mixed $operation
+     */
+    private function withCopy(callable $operation): mixed
+    {
+        return $operation($this->getArrayCopy());
+    }
+
+    /**
+     * @param callable(array): void $mutator  Receives the working copy by reference.
+     */
+    private function mutateCopy(callable $mutator): self
+    {
+        $copy = $this->getArrayCopy();
+        $mutator($copy);
+        $this->exchangeArray($copy);
+        return $this;
+    }
+
+    /**
      * Returns the number of elements (alias for count()).
      */
     public function length(): int
@@ -139,7 +183,12 @@ final class Arr extends \ArrayObject
      */
     public function contains(mixed $value): bool
     {
-        return in_array($value, (array) $this, true);
+        foreach ($this as $item) {
+            if ($item === $value) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -152,12 +201,15 @@ final class Arr extends \ArrayObject
 
     /**
      * Returns the key of the first element identical (===) to $value, or null.
-     * Uses the C-level array_search for maximum throughput.
      */
     public function indexOf(mixed $value): int|string|null
     {
-        $key = array_search($value, (array) $this, true);
-        return $key !== false ? $key : null;
+        foreach ($this as $key => $item) {
+            if ($value === $item) {
+                return $key;
+            }
+        }
+        return null;
     }
 
     /**
@@ -166,7 +218,7 @@ final class Arr extends \ArrayObject
     public function lastIndexOf(mixed $value): int|string|null
     {
         $found = null;
-        foreach ((array) $this as $key => $item) {
+        foreach ($this as $key => $item) {
             if ($value === $item) {
                 $found = $key;
             }
@@ -186,16 +238,21 @@ final class Arr extends \ArrayObject
      */
     public function find(\Closure $delegate, bool $isKeyValue = false): mixed
     {
-        $arr = (array) $this;
-
         if ($isKeyValue === false) {
-            // Wrap to preserve strict === true semantics from the original API
-            return array_find($arr, static fn($v) => $delegate($v) === true);
+            foreach ($this as $value) {
+                if ($delegate($value) === true) {
+                    return $value;
+                }
+            }
+            return null;
         }
 
-        // Delegate signature is fn($key, $value); array_find_key uses fn($value, $key)
-        $key = array_find_key($arr, static fn($v, $k) => $delegate($k, $v) === true);
-        return $key !== null ? new self(['key' => $key, 'value' => $arr[$key]]) : null;
+        foreach ($this as $key => $value) {
+            if ($delegate($key, $value) === true) {
+                return new self(['key' => $key, 'value' => $value]);
+            }
+        }
+        return null;
     }
 
     /**
@@ -203,7 +260,11 @@ final class Arr extends \ArrayObject
      */
     public function getKeys(): self
     {
-        return new self(array_keys((array) $this));
+        $keys = [];
+        foreach ($this as $key => $_) {
+            $keys[] = $key;
+        }
+        return new self($keys);
     }
 
     /**
@@ -213,7 +274,7 @@ final class Arr extends \ArrayObject
     public function getLastNumberKey(): int|null
     {
         $max = null;
-        foreach (array_keys((array) $this) as $key) {
+        foreach ($this as $key => $_) {
             if (is_numeric($key)) {
                 $k = (int) $key;
                 if ($max === null || $k > $max) {
@@ -229,11 +290,10 @@ final class Arr extends \ArrayObject
      */
     public function getFirst(): mixed
     {
-        $arr = (array) $this;
-        if ($arr === []) {
-            return null;
+        foreach ($this as $value) {
+            return $value;
         }
-        return parent::offsetGet((string) array_key_first($arr));
+        return null;
     }
 
     /**
@@ -241,11 +301,11 @@ final class Arr extends \ArrayObject
      */
     public function getLast(): mixed
     {
-        $arr = (array) $this;
-        if ($arr === []) {
-            return null;
+        $last = null;
+        foreach ($this as $value) {
+            $last = $value;
         }
-        return parent::offsetGet((string) array_key_last($arr));
+        return $last;
     }
 
     /**
@@ -288,7 +348,7 @@ final class Arr extends \ArrayObject
      */
     public function remove(mixed $value): self
     {
-        foreach ((array) $this as $key => $item) {
+        foreach ($this as $key => $item) {
             if ($value === $item) {
                 parent::offsetUnset((string) $key);
             }
@@ -316,7 +376,7 @@ final class Arr extends \ArrayObject
         if ($limit <= 0) {
             return new self();
         }
-        return new self(array_slice((array) $this, 0, $limit, $preserveKeys));
+        return $this->mapCopy(static fn(array $a): array => array_slice($a, 0, $limit, $preserveKeys));
     }
 
     /**
@@ -326,9 +386,8 @@ final class Arr extends \ArrayObject
      */
     public function map(\Closure $delegate): self
     {
-        $arr    = (array) $this;
         $result = [];
-        foreach ($arr as $key => $value) {
+        foreach ($this as $key => $value) {
             $result[$key] = $delegate($value, $key);
         }
         return new self($result);
@@ -341,9 +400,8 @@ final class Arr extends \ArrayObject
      */
     public function filter(\Closure $delegate): self
     {
-        $arr    = (array) $this;
         $result = [];
-        foreach ($arr as $key => $value) {
+        foreach ($this as $key => $value) {
             if ($delegate($value, $key) === true) {
                 $result[$key] = $value;
             }
@@ -358,7 +416,7 @@ final class Arr extends \ArrayObject
      */
     public function each(\Closure $delegate): self
     {
-        foreach ((array) $this as $key => $value) {
+        foreach ($this as $key => $value) {
             $delegate($value, $key);
         }
         return $this;
@@ -371,9 +429,10 @@ final class Arr extends \ArrayObject
      */
     public function eachRecursive(\Closure $delegate): self
     {
-        $arr = (array) $this;
-        array_walk_recursive($arr, static function (mixed $value, mixed $key) use ($delegate): void {
-            $delegate($value, $key);
+        $this->withCopy(static function (array $arr) use ($delegate): void {
+            array_walk_recursive($arr, static function (mixed $value, mixed $key) use ($delegate): void {
+                $delegate($value, $key);
+            });
         });
         return $this;
     }
@@ -421,9 +480,10 @@ final class Arr extends \ArrayObject
      */
     public function shuffle(): self
     {
-        $array = $this->toArray();
-        shuffle($array);
-        return new self($array);
+        return $this->mapCopy(static function (array $a): array {
+            shuffle($a);
+            return $a;
+        });
     }
 
     /**
@@ -433,7 +493,7 @@ final class Arr extends \ArrayObject
      */
     public function reverse(bool $preserveKeys = true): self
     {
-        return new self(array_reverse($this->toArray(), $preserveKeys));
+        return $this->mapCopy(static fn(array $a): array => array_reverse($a, $preserveKeys));
     }
 
     /**
@@ -443,7 +503,7 @@ final class Arr extends \ArrayObject
      */
     public function join(string $delimiter = ','): string
     {
-        return implode($delimiter, $this->toArray());
+        return implode($delimiter, $this->copy());
     }
 
     /**
@@ -454,7 +514,7 @@ final class Arr extends \ArrayObject
      */
     public function merge(self|array|null $array = null, bool $replace = true): self
     {
-        $base  = $this->toArray();
+        $base  = $this->copy();
         $other = self::toNative($array);
 
         return new self($replace
@@ -477,7 +537,14 @@ final class Arr extends \ArrayObject
      */
     public function isList(): bool
     {
-        return array_is_list((array) $this);
+        $index = 0;
+        foreach ($this as $key => $_) {
+            if ($key !== $index) {
+                return false;
+            }
+            $index++;
+        }
+        return true;
     }
 
     /**
@@ -508,7 +575,7 @@ final class Arr extends \ArrayObject
      */
     public function except(self|array $keys): self
     {
-        $result = (array) $this;
+        $result = $this->copy();
         foreach (self::toNative($keys) as $key) {
             unset($result[(string) $key]);
         }
@@ -520,7 +587,7 @@ final class Arr extends \ArrayObject
      */
     public function getValues(): self
     {
-        return new self(array_values((array) $this));
+        return new self(array_values($this->copy()));
     }
 
     /**
@@ -528,7 +595,7 @@ final class Arr extends \ArrayObject
      */
     public function flip(): self
     {
-        return new self(array_flip((array) $this));
+        return new self(array_flip($this->copy()));
     }
 
     /**
@@ -536,7 +603,7 @@ final class Arr extends \ArrayObject
      */
     public function unique(int $flags = SORT_STRING): self
     {
-        return new self(array_unique((array) $this, $flags));
+        return new self(array_unique($this->copy(), $flags));
     }
 
     /**
@@ -544,7 +611,7 @@ final class Arr extends \ArrayObject
      */
     public function slice(int $offset, ?int $length = null, bool $preserveKeys = false): self
     {
-        return new self(array_slice((array) $this, $offset, $length, $preserveKeys));
+        return new self(array_slice($this->copy(), $offset, $length, $preserveKeys));
     }
 
     /**
@@ -552,7 +619,7 @@ final class Arr extends \ArrayObject
      */
     public function chunk(int $length, bool $preserveKeys = false): self
     {
-        $chunks = array_chunk((array) $this, max(1, $length), $preserveKeys);
+        $chunks = array_chunk($this->copy(), max(1, $length), $preserveKeys);
         return new self(array_map(static fn(array $chunk): self => new self($chunk), $chunks));
     }
 
@@ -561,7 +628,7 @@ final class Arr extends \ArrayObject
      */
     public function pad(int $size, mixed $value): self
     {
-        return new self(array_pad((array) $this, $size, $value));
+        return new self(array_pad($this->copy(), $size, $value));
     }
 
     /**
@@ -569,7 +636,7 @@ final class Arr extends \ArrayObject
      */
     public function combine(self|array $values): self
     {
-        $combined = array_combine(array_values((array) $this), self::toNative($values));
+        $combined = array_combine(array_values($this->copy()), self::toNative($values));
         return new self($combined !== false ? $combined : []);
     }
 
@@ -578,7 +645,7 @@ final class Arr extends \ArrayObject
      */
     public function countValues(): self
     {
-        return new self(array_count_values((array) $this));
+        return new self(array_count_values($this->copy()));
     }
 
     /**
@@ -586,7 +653,7 @@ final class Arr extends \ArrayObject
      */
     public function column(string|int|null $columnKey, string|int|null $indexKey = null): self
     {
-        return new self(array_column((array) $this, $columnKey, $indexKey));
+        return new self(array_column($this->copy(), $columnKey, $indexKey));
     }
 
     /**
@@ -602,7 +669,7 @@ final class Arr extends \ArrayObject
      */
     public function concat(self|array $array): self
     {
-        return new self(array_merge((array) $this, self::toNative($array)));
+        return new self(array_merge($this->copy(), self::toNative($array)));
     }
 
     /**
@@ -610,7 +677,7 @@ final class Arr extends \ArrayObject
      */
     public function sum(): int|float
     {
-        return array_sum((array) $this);
+        return $this->withCopy(static fn(array $a): int|float => array_sum($a));
     }
 
     /**
@@ -618,7 +685,7 @@ final class Arr extends \ArrayObject
      */
     public function product(): int|float
     {
-        return array_product((array) $this);
+        return $this->withCopy(static fn(array $a): int|float => array_product($a));
     }
 
     /**
@@ -626,7 +693,7 @@ final class Arr extends \ArrayObject
      */
     public function reduce(\Closure $delegate, mixed $initial = null): mixed
     {
-        return array_reduce((array) $this, $delegate, $initial);
+        return $this->withCopy(static fn(array $a): mixed => array_reduce($a, $delegate, $initial));
     }
 
     /**
@@ -634,7 +701,12 @@ final class Arr extends \ArrayObject
      */
     public function every(\Closure $delegate): bool
     {
-        return array_all((array) $this, static fn(mixed $value, mixed $key): bool => $delegate($value, $key) === true);
+        foreach ($this as $key => $value) {
+            if ($delegate($value, $key) !== true) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -642,7 +714,12 @@ final class Arr extends \ArrayObject
      */
     public function some(\Closure $delegate): bool
     {
-        return array_any((array) $this, static fn(mixed $value, mixed $key): bool => $delegate($value, $key) === true);
+        foreach ($this as $key => $value) {
+            if ($delegate($value, $key) === true) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -652,7 +729,7 @@ final class Arr extends \ArrayObject
      */
     public function random(int $num = 1): mixed
     {
-        $arr = (array) $this;
+        $arr = $this->copy();
         if ($arr === []) {
             return $num === 1 ? null : new self();
         }
@@ -678,7 +755,7 @@ final class Arr extends \ArrayObject
      */
     public function replace(self|array $array): self
     {
-        return new self(array_replace((array) $this, self::toNative($array)));
+        return new self(array_replace($this->copy(), self::toNative($array)));
     }
 
     /**
@@ -687,7 +764,7 @@ final class Arr extends \ArrayObject
     public function diff(self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(array_diff((array) $this, ...$others));
+        return new self(array_diff($this->copy(), ...$others));
     }
 
     /**
@@ -696,7 +773,7 @@ final class Arr extends \ArrayObject
     public function diffAssoc(self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(array_diff_assoc((array) $this, ...$others));
+        return new self(array_diff_assoc($this->copy(), ...$others));
     }
 
     /**
@@ -705,7 +782,7 @@ final class Arr extends \ArrayObject
     public function diffKey(self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(array_diff_key((array) $this, ...$others));
+        return new self(array_diff_key($this->copy(), ...$others));
     }
 
     /**
@@ -717,7 +794,7 @@ final class Arr extends \ArrayObject
     public function diffAssocByKeyDelegate(\Closure $delegate, self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(self::callArrayFuncWithDelegate('array_diff_uassoc', (array) $this, $others, $delegate));
+        return new self(self::callArrayFuncWithDelegate('array_diff_uassoc', $this->copy(), $others, $delegate));
     }
 
     /**
@@ -729,7 +806,7 @@ final class Arr extends \ArrayObject
     public function diffKeysByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(self::callArrayFuncWithDelegate('array_diff_ukey', (array) $this, $others, $delegate));
+        return new self(self::callArrayFuncWithDelegate('array_diff_ukey', $this->copy(), $others, $delegate));
     }
 
     /**
@@ -741,7 +818,7 @@ final class Arr extends \ArrayObject
     public function diffByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(self::callArrayFuncWithDelegate('array_udiff', (array) $this, $others, $delegate));
+        return new self(self::callArrayFuncWithDelegate('array_udiff', $this->copy(), $others, $delegate));
     }
 
     /**
@@ -753,7 +830,7 @@ final class Arr extends \ArrayObject
     public function diffAssocByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(self::callArrayFuncWithDelegate('array_udiff_assoc', (array) $this, $others, $delegate));
+        return new self(self::callArrayFuncWithDelegate('array_udiff_assoc', $this->copy(), $others, $delegate));
     }
 
     /**
@@ -765,7 +842,7 @@ final class Arr extends \ArrayObject
     public function diffKeyByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(self::callArrayFuncWithDelegate('array_udiff_key', (array) $this, $others, $delegate));
+        return new self(self::callArrayFuncWithDelegate('array_udiff_key', $this->copy(), $others, $delegate));
     }
 
     /**
@@ -774,7 +851,7 @@ final class Arr extends \ArrayObject
     public function intersect(self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(array_intersect((array) $this, ...$others));
+        return new self(array_intersect($this->copy(), ...$others));
     }
 
     /**
@@ -783,7 +860,7 @@ final class Arr extends \ArrayObject
     public function intersectAssoc(self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(array_intersect_assoc((array) $this, ...$others));
+        return new self(array_intersect_assoc($this->copy(), ...$others));
     }
 
     /**
@@ -792,7 +869,7 @@ final class Arr extends \ArrayObject
     public function intersectKey(self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(array_intersect_key((array) $this, ...$others));
+        return new self(array_intersect_key($this->copy(), ...$others));
     }
 
     /**
@@ -804,7 +881,7 @@ final class Arr extends \ArrayObject
     public function intersectAssocByKeyDelegate(\Closure $delegate, self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(self::callArrayFuncWithDelegate('array_intersect_uassoc', (array) $this, $others, $delegate));
+        return new self(self::callArrayFuncWithDelegate('array_intersect_uassoc', $this->copy(), $others, $delegate));
     }
 
     /**
@@ -816,7 +893,7 @@ final class Arr extends \ArrayObject
     public function intersectKeysByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(self::callArrayFuncWithDelegate('array_intersect_ukey', (array) $this, $others, $delegate));
+        return new self(self::callArrayFuncWithDelegate('array_intersect_ukey', $this->copy(), $others, $delegate));
     }
 
     /**
@@ -828,7 +905,7 @@ final class Arr extends \ArrayObject
     public function intersectByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(self::callArrayFuncWithDelegate('array_uintersect', (array) $this, $others, $delegate));
+        return new self(self::callArrayFuncWithDelegate('array_uintersect', $this->copy(), $others, $delegate));
     }
 
     /**
@@ -840,7 +917,7 @@ final class Arr extends \ArrayObject
     public function intersectAssocByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(self::callArrayFuncWithDelegate('array_uintersect_assoc', (array) $this, $others, $delegate));
+        return new self(self::callArrayFuncWithDelegate('array_uintersect_assoc', $this->copy(), $others, $delegate));
     }
 
     /**
@@ -852,7 +929,7 @@ final class Arr extends \ArrayObject
     public function intersectKeyByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
         $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
-        return new self(self::callArrayFuncWithDelegate('array_uintersect_ukey', (array) $this, $others, $delegate));
+        return new self(self::callArrayFuncWithDelegate('array_uintersect_ukey', $this->copy(), $others, $delegate));
     }
 
     /**
@@ -860,7 +937,7 @@ final class Arr extends \ArrayObject
      */
     public function changeKeyCase(int $case = CASE_LOWER): self
     {
-        return new self(array_change_key_case((array) $this, $case));
+        return new self(array_change_key_case($this->copy(), $case));
     }
 
     /**
@@ -869,7 +946,7 @@ final class Arr extends \ArrayObject
     public function flatten(int $depth = PHP_INT_MAX): self
     {
         $result = [];
-        self::flattenInto($result, (array) $this, $depth);
+        self::flattenInto($result, $this->copy(), $depth);
         return new self($result);
     }
 
@@ -879,7 +956,7 @@ final class Arr extends \ArrayObject
     public function groupBy(\Closure|string $key): self
     {
         $groups = [];
-        foreach ((array) $this as $itemKey => $item) {
+        foreach ($this as $itemKey => $item) {
             $groupKey = is_string($key) ? self::readProperty($item, $key) : $key($item, $itemKey);
             $groups[(string) $groupKey][] = $item;
         }
@@ -895,7 +972,7 @@ final class Arr extends \ArrayObject
     public function keyBy(\Closure|string $key): self
     {
         $result = [];
-        foreach ((array) $this as $itemKey => $item) {
+        foreach ($this as $itemKey => $item) {
             $newKey = is_string($key) ? self::readProperty($item, $key) : $key($item, $itemKey);
             $result[(string) $newKey] = $item;
         }
@@ -918,11 +995,13 @@ final class Arr extends \ArrayObject
      */
     public function pop(): mixed
     {
-        $arr = (array) $this;
-        if ($arr === []) {
+        $key = null;
+        foreach ($this as $k => $_) {
+            $key = $k;
+        }
+        if ($key === null) {
             return null;
         }
-        $key = array_key_last($arr);
         $value = parent::offsetGet((string) $key);
         parent::offsetUnset((string) $key);
         return $value;
@@ -933,14 +1012,11 @@ final class Arr extends \ArrayObject
      */
     public function shift(): mixed
     {
-        $arr = (array) $this;
-        if ($arr === []) {
-            return null;
+        foreach ($this as $key => $value) {
+            parent::offsetUnset((string) $key);
+            return $value;
         }
-        $key = array_key_first($arr);
-        $value = parent::offsetGet((string) $key);
-        parent::offsetUnset((string) $key);
-        return $value;
+        return null;
     }
 
     /**
@@ -948,7 +1024,7 @@ final class Arr extends \ArrayObject
      */
     public function unshift(mixed ...$values): self
     {
-        $merged = [...$values, ...(array) $this];
+        $merged = [...$values, ...$this->copy()];
         $this->exchangeArray($merged);
         return $this;
     }
@@ -958,10 +1034,9 @@ final class Arr extends \ArrayObject
      */
     public function splice(int $offset, ?int $length = null, mixed ...$replacement): self
     {
-        $arr = (array) $this;
-        array_splice($arr, $offset, $length, $replacement);
-        $this->exchangeArray($arr);
-        return $this;
+        return $this->mutateCopy(static function (array &$a) use ($offset, $length, $replacement): void {
+            array_splice($a, $offset, $length, $replacement);
+        });
     }
 
     /**
@@ -978,10 +1053,9 @@ final class Arr extends \ArrayObject
      */
     public function sortIndexed(): self
     {
-        $arr = (array) $this;
-        sort($arr);
-        $this->exchangeArray($arr);
-        return $this;
+        return $this->mutateCopy(static function (array &$a): void {
+            sort($a);
+        });
     }
 
     /**
@@ -989,10 +1063,9 @@ final class Arr extends \ArrayObject
      */
     public function sortIndexedDesc(): self
     {
-        $arr = (array) $this;
-        rsort($arr);
-        $this->exchangeArray($arr);
-        return $this;
+        return $this->mutateCopy(static function (array &$a): void {
+            rsort($a);
+        });
     }
 
     /**
@@ -1033,10 +1106,9 @@ final class Arr extends \ArrayObject
      */
     public function multisort(int $order = SORT_ASC, int $flags = SORT_REGULAR): self
     {
-        $arr = (array) $this;
-        array_multisort($arr, $order, $flags);
-        $this->exchangeArray($arr);
-        return $this;
+        return $this->mutateCopy(static function (array &$a) use ($order, $flags): void {
+            array_multisort($a, $order, $flags);
+        });
     }
 
     /**
@@ -1112,7 +1184,7 @@ final class Arr extends \ArrayObject
     private static function toNative(self|array|null $value): array
     {
         if ($value instanceof self) {
-            return $value->toArray();
+            return $value->getArrayCopy();
         }
         return $value ?? [];
     }
