@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace Flames\Collection;
 
+use Flames\Collection\Trait\Prototype as PrototypeTrait;
+
 /**
  * Stateless utility class for common floating-point operations.
  */
 final class Floats
 {
+    use PrototypeTrait;
+
     public static function parse(mixed $value): float
     {
         return (float) $value;
@@ -138,5 +142,71 @@ final class Floats
         string $thousandsSep = '',
     ): string {
         return number_format($value, $decimals, $decimalSep, $thousandsSep);
+    }
+
+    /**
+     * Returns the floating-point remainder of division (fmod).
+     */
+    public static function mod(float $value, float $divisor): float
+    {
+        return fmod($value, $divisor);
+    }
+
+    /**
+     * Raises $value to the $exponent power.
+     */
+    public static function power(float $value, float $exponent): float
+    {
+        return $value ** $exponent;
+    }
+
+    public static function sqrt(float $value): float
+    {
+        return sqrt($value);
+    }
+
+    public static function log(float $value, float $base = M_E): float
+    {
+        return $base === M_E ? log($value) : log($value, $base);
+    }
+
+    public static function exp(float $value): float
+    {
+        return exp($value);
+    }
+
+    public static function min(float $value, float ...$others): float
+    {
+        return min($value, ...$others);
+    }
+
+    public static function max(float $value, float ...$others): float
+    {
+        return max($value, ...$others);
+    }
+
+    public static function sign(float $value): int
+    {
+        return $value <=> 0.0;
+    }
+
+    public static function isFinite(float $value): bool
+    {
+        return is_finite($value);
+    }
+
+    public static function isNan(float $value): bool
+    {
+        return is_nan($value);
+    }
+
+    public static function isInfinite(float $value): bool
+    {
+        return is_infinite($value);
+    }
+
+    public static function toInt(float $value): int
+    {
+        return (int) $value;
     }
 }

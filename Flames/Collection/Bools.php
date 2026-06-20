@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace Flames\Collection;
 
+use Flames\Collection\Trait\Prototype as PrototypeTrait;
+
 /**
  * Stateless utility class for common boolean operations.
  */
 final class Bools
 {
+    use PrototypeTrait;
+
     /**
      * Converts $value to a boolean, or null for ambiguous / unknown inputs.
      *
@@ -78,5 +82,42 @@ final class Bools
     public static function negate(bool|null $value): bool|null
     {
         return $value !== null ? !$value : null;
+    }
+
+    public static function and(bool $value, bool $other): bool
+    {
+        return $value && $other;
+    }
+
+    public static function or(bool $value, bool $other): bool
+    {
+        return $value || $other;
+    }
+
+    public static function xor(bool $value, bool $other): bool
+    {
+        return $value xor $other;
+    }
+
+    public static function toInt(bool $value): int
+    {
+        return (int) $value;
+    }
+
+    /**
+     * Converts 0/1 to false/true. Any other value returns null.
+     */
+    public static function fromInt(int $value): bool|null
+    {
+        return match ($value) {
+            1       => true,
+            0       => false,
+            default => null,
+        };
+    }
+
+    public static function toString(bool $value): string
+    {
+        return $value ? 'true' : 'false';
     }
 }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Flames\Collection;
 
+use Flames\Collection\Trait\Prototype as PrototypeTrait;
+
 /**
  * Stateless utility class for common string operations.
  *
@@ -12,6 +14,8 @@ namespace Flames\Collection;
  */
 final class Strings
 {
+    use PrototypeTrait;
+
     public static function parse(mixed $value): string
     {
         return (string) $value;
@@ -129,18 +133,8 @@ final class Strings
      */
     public static function equalsAny(mixed $value, array|Arr $needles, bool $caseSensitive = true): bool
     {
-        $str = (string) $value;
-        if ($caseSensitive === false) {
-            $lower = mb_strtolower($str, 'UTF-8');
-            foreach ($needles as $needle) {
-                if ($lower === mb_strtolower((string) $needle, 'UTF-8')) {
-                    return true;
-                }
-            }
-            return false;
-        }
         foreach ($needles as $needle) {
-            if ($str === (string) $needle) {
+            if (self::equals($value, $needle, $caseSensitive)) {
                 return true;
             }
         }
@@ -152,14 +146,77 @@ final class Strings
         return ((string) $value) === '';
     }
 
-    public static function replace(mixed $value, mixed $needle, mixed $replace): string
-    {
-        return str_replace((string) $needle, (string) $replace, (string) $value);
+    public static function replace(
+        mixed $value,
+        mixed $search,
+        mixed $replace,
+        bool  $caseSensitive = true,
+        int   &$count = 0,
+    ): string {
+        if ($caseSensitive === false) {
+            return str_ireplace((string) $search, (string) $replace, (string) $value, $count);
+        }
+        return str_replace((string) $search, (string) $replace, (string) $value, $count);
     }
 
-    public static function remove(mixed $value, mixed $needle): string
+    /**
+     * Replaces multiple search strings at once, like equalsAny is to equals.
+     *
+     * When $replace is a string, every match is replaced with that value.
+     */
+    public static function replaceAny(
+        mixed            $value,
+        array|Arr        $search,
+        array|Arr|string $replace,
+        bool             $caseSensitive = true,
+        int              &$count = 0,
+    ): string {
+        $searchArr  = self::toPairArray($search);
+        $replaceVal = is_string($replace) ? $replace : self::toPairArray($replace);
+
+        if ($caseSensitive === false) {
+            return str_ireplace($searchArr, $replaceVal, (string) $value, $count);
+        }
+        return str_replace($searchArr, $replaceVal, (string) $value, $count);
+    }
+
+    /**
+     * Replaces text matching a regex pattern (preg_replace).
+     */
+    public static function replaceRegex(
+        mixed  $value,
+        string $pattern,
+        mixed  $replacement,
+        int    $limit = -1,
+        int    &$count = 0,
+    ): string {
+        $replacementArr = $replacement instanceof Arr ? $replacement->toArray() : $replacement;
+        return (string) preg_replace($pattern, $replacementArr, (string) $value, $limit, $count);
+    }
+
+    /**
+     * Replaces a substring by offset/length (substr_replace).
+     */
+    public static function replaceSub(
+        mixed  $value,
+        mixed  $replace,
+        mixed  $offset,
+        mixed  $length = null,
+    ): string {
+        return substr_replace((string) $value, (string) $replace, (int) $offset, $length);
+    }
+
+    public static function remove(mixed $value, mixed $needle, bool $caseSensitive = true): string
     {
-        return str_replace((string) $needle, '', (string) $value);
+        return self::replace($value, $needle, '', $caseSensitive);
+    }
+
+    /**
+     * Removes every occurrence of each needle, like removeAny is to remove.
+     */
+    public static function removeAny(mixed $value, array|Arr $needles, bool $caseSensitive = true): string
+    {
+        return self::replaceAny($value, $needles, '', $caseSensitive);
     }
 
     /**
@@ -283,6 +340,18 @@ final class Strings
             ? strrpos((string) $value, (string) $needle)
             : strripos((string) $value, (string) $needle);
         return $pos !== false ? $pos : null;
+    }
+
+    public static function trimLeft(mixed $value, mixed $charList = null): string
+    {
+        $str = (string) $value;
+        return $charList === null ? ltrim($str) : ltrim($str, (string) $charList);
+    }
+
+    public static function trimRight(mixed $value, mixed $charList = null): string
+    {
+        $str = (string) $value;
+        return $charList === null ? rtrim($str) : rtrim($str, (string) $charList);
     }
 
     /**
@@ -512,6 +581,287 @@ final class Strings
         return trim($str, $delimiter);
     }
 
+    public static function repeat(mixed $value, int $times): string
+    {
+        return str_repeat((string) $value, max(0, $times));
+    }
+
+    public static function reverse(mixed $value): string
+    {
+        return strrev((string) $value);
+    }
+
+    public static function shuffle(mixed $value): string
+    {
+        return str_shuffle((string) $value);
+    }
+
+    public static function rot13(mixed $value): string
+    {
+        return str_rot13((string) $value);
+    }
+
+    public static function lowerFirst(mixed $value): string
+    {
+        $str = (string) $value;
+        if ($str === '') {
+            return $str;
+        }
+        return mb_strtolower(mb_substr($str, 0, 1, 'UTF-8'), 'UTF-8') . mb_substr($str, 1, null, 'UTF-8');
+    }
+
+    public static function wordCount(mixed $value, int $format = 0, ?string $charList = null): int|array
+    {
+        return $charList === null
+            ? str_word_count((string) $value, $format)
+            : str_word_count((string) $value, $format, $charList);
+    }
+
+    public static function countOccurrences(
+        mixed $value,
+        mixed $needle,
+        int   $offset = 0,
+        int   $length = PHP_INT_MAX,
+        bool  $caseSensitive = true,
+    ): int {
+        $str    = (string) $value;
+        $search = (string) $needle;
+        if ($caseSensitive === false) {
+            return substr_count(mb_strtolower($str, 'UTF-8'), mb_strtolower($search, 'UTF-8'), $offset, $length);
+        }
+        return substr_count($str, $search, $offset, $length);
+    }
+
+    public static function compare(mixed $value, mixed $other, bool $caseSensitive = true): int
+    {
+        return $caseSensitive
+            ? strcmp((string) $value, (string) $other)
+            : strcasecmp((string) $value, (string) $other);
+    }
+
+    public static function compareNatural(mixed $value, mixed $other, bool $caseSensitive = true): int
+    {
+        return $caseSensitive
+            ? strnatcmp((string) $value, (string) $other)
+            : strnatcasecmp((string) $value, (string) $other);
+    }
+
+    public static function compareLength(mixed $value, mixed $other, int $length, bool $caseSensitive = true): int
+    {
+        return $caseSensitive
+            ? strncmp((string) $value, (string) $other, $length)
+            : strncasecmp((string) $value, (string) $other, $length);
+    }
+
+    public static function compareSub(
+        mixed $value,
+        mixed $other,
+        mixed $offset,
+        mixed $length = null,
+        bool  $caseSensitive = true,
+    ): int {
+        $str    = (string) $value;
+        $other  = (string) $other;
+        $offset = (int) $offset;
+        $len    = $length !== null ? (int) $length : strlen($other);
+
+        if ($caseSensitive === false) {
+            $slice = mb_strtolower(mb_substr($str, $offset, $len, 'UTF-8'), 'UTF-8');
+            $other = mb_strtolower(mb_substr($other, 0, $len, 'UTF-8'), 'UTF-8');
+            return strcmp($slice, $other);
+        }
+
+        return substr_compare($str, $other, $offset, $len);
+    }
+
+    /**
+     * Translates characters using parallel from/to strings (strtr).
+     */
+    public static function translate(mixed $value, string $from, string $to): string
+    {
+        return strtr((string) $value, $from, $to);
+    }
+
+    /**
+     * Translates substrings using a search/replace map (strtr).
+     */
+    public static function translateMap(mixed $value, array|Arr $map): string
+    {
+        return strtr((string) $value, self::toPairArray($map));
+    }
+
+    public static function spanInclude(mixed $value, mixed $characters, int $offset = 0): int
+    {
+        return strspn((string) $value, (string) $characters, $offset);
+    }
+
+    public static function spanExclude(mixed $value, mixed $characters, int $offset = 0): int
+    {
+        return strcspn((string) $value, (string) $characters, $offset);
+    }
+
+    public static function chunkSplit(mixed $value, int $length = 76, string $separator = "\r\n"): string
+    {
+        return chunk_split((string) $value, $length, $separator);
+    }
+
+    public static function wordWrap(
+        mixed  $value,
+        int    $width = 75,
+        string $break = "\n",
+        bool   $cutLongWords = false,
+    ): string {
+        return wordwrap((string) $value, $width, $break, $cutLongWords);
+    }
+
+    public static function nl2Br(mixed $value, bool $useXhtml = true): string
+    {
+        return nl2br((string) $value, $useXhtml);
+    }
+
+    public static function format(mixed $value, mixed ...$args): string
+    {
+        return sprintf((string) $value, ...$args);
+    }
+
+    public static function scan(mixed $value, string $format, mixed &...$vars): int|array|null
+    {
+        return sscanf((string) $value, $format, ...$vars);
+    }
+
+    public static function match(mixed $value, string $pattern, array &$matches = [], int $flags = 0, int $offset = 0): int|false
+    {
+        return preg_match($pattern, (string) $value, $matches, $flags, $offset);
+    }
+
+    public static function matchAll(mixed $value, string $pattern, array &$matches = [], int $flags = PREG_PATTERN_ORDER, int $offset = 0): int|false
+    {
+        return preg_match_all($pattern, (string) $value, $matches, $flags, $offset);
+    }
+
+    public static function quoteMeta(mixed $value): string
+    {
+        return quotemeta((string) $value);
+    }
+
+    public static function addCslashes(mixed $value, mixed $charList): string
+    {
+        return addcslashes((string) $value, (string) $charList);
+    }
+
+    public static function stripCslashes(mixed $value): string
+    {
+        return stripcslashes((string) $value);
+    }
+
+    public static function encodeHtml(mixed $value, int $flags = ENT_QUOTES | ENT_SUBSTITUTE, ?string $encoding = 'UTF-8'): string
+    {
+        return htmlspecialchars((string) $value, $flags, $encoding);
+    }
+
+    public static function decodeHtml(mixed $value, int $flags = ENT_QUOTES | ENT_SUBSTITUTE): string
+    {
+        return htmlspecialchars_decode((string) $value, $flags);
+    }
+
+    public static function encodeHtmlEntities(
+        mixed   $value,
+        int     $flags = ENT_QUOTES | ENT_SUBSTITUTE,
+        ?string $encoding = 'UTF-8',
+        bool    $doubleEncode = true,
+    ): string {
+        return htmlentities((string) $value, $flags, $encoding, $doubleEncode);
+    }
+
+    public static function decodeHtmlEntities(
+        mixed   $value,
+        int     $flags = ENT_QUOTES | ENT_SUBSTITUTE,
+        ?string $encoding = 'UTF-8',
+    ): string {
+        return html_entity_decode((string) $value, $flags, $encoding);
+    }
+
+    public static function parseQuery(mixed $value, array &$result = null): int
+    {
+        parse_str((string) $value, $result);
+        return count($result ?? []);
+    }
+
+    public static function fromCsv(
+        mixed  $value,
+        string $separator = ',',
+        string $enclosure = '"',
+        string $escape = '\\',
+    ): Arr {
+        return new Arr(str_getcsv((string) $value, $separator, $enclosure, $escape));
+    }
+
+    public static function toCsv(
+        array|Arr $fields,
+        string    $separator = ',',
+        string    $enclosure = '"',
+        string    $escape = '\\',
+    ): string {
+        $fields = $fields instanceof Arr ? $fields->toArray() : $fields;
+        return implode($separator, array_map(
+            static fn(mixed $field): string => self::escapeCsvField((string) $field, $separator, $enclosure, $escape),
+            $fields,
+        ));
+    }
+
+    public static function increment(mixed $value): string
+    {
+        return str_increment((string) $value);
+    }
+
+    public static function decrement(mixed $value): string
+    {
+        return str_decrement((string) $value);
+    }
+
+    public static function levenshtein(mixed $value, mixed $other): int
+    {
+        return levenshtein((string) $value, (string) $other);
+    }
+
+    public static function similarText(mixed $value, mixed $other, float &$percent = null): int
+    {
+        return similar_text((string) $value, (string) $other, $percent);
+    }
+
+    public static function soundex(mixed $value): string
+    {
+        return soundex((string) $value);
+    }
+
+    public static function metaphone(mixed $value, int $maxLength = 0): string
+    {
+        return metaphone((string) $value, $maxLength);
+    }
+
+    public static function crc32(mixed $value): int
+    {
+        return crc32((string) $value);
+    }
+
+    public static function md5(mixed $value, bool $rawOutput = false): string
+    {
+        return md5((string) $value, $rawOutput);
+    }
+
+    public static function sha1(mixed $value, bool $rawOutput = false): string
+    {
+        return sha1((string) $value, $rawOutput);
+    }
+
+    public static function subMultibyte(mixed $value, mixed $start, mixed $length = null, string $encoding = 'UTF-8'): string
+    {
+        $str = (string) $value;
+        return $length !== null
+            ? mb_substr($str, (int) $start, (int) $length, $encoding)
+            : mb_substr($str, (int) $start, null, $encoding);
+    }
+
     /**
      * Removes accented / diacritic characters with their plain ASCII equivalents.
      *
@@ -526,5 +876,22 @@ final class Strings
         return mb_check_encoding($str, 'UTF-8')
             ? Strings\AccentsRemover::utf8($str)
             : Strings\AccentsRemover::latin($str);
+    }
+
+    /**
+     * @return array<string|int, string|int>
+     */
+    private static function toPairArray(array|Arr $value): array
+    {
+        return $value instanceof Arr ? $value->toArray() : $value;
+    }
+
+    private static function escapeCsvField(string $field, string $separator, string $enclosure, string $escape): string
+    {
+        if (!str_contains($field, $separator) && !str_contains($field, $enclosure) && !str_contains($field, "\n")) {
+            return $field;
+        }
+
+        return $enclosure . str_replace($enclosure, $escape . $enclosure, $field) . $enclosure;
     }
 }
