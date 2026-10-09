@@ -781,7 +781,7 @@ final class Strings
         return html_entity_decode((string) $value, $flags, $encoding);
     }
 
-    public static function parseQuery(mixed $value, array &$result = null): int
+    public static function parseQuery(mixed $value, ?array &$result = null): int
     {
         parse_str((string) $value, $result);
         return count($result ?? []);
@@ -824,7 +824,7 @@ final class Strings
         return levenshtein((string) $value, (string) $other);
     }
 
-    public static function similarText(mixed $value, mixed $other, float &$percent = null): int
+    public static function similarText(mixed $value, mixed $other, ?float &$percent = null): int
     {
         return similar_text((string) $value, (string) $other, $percent);
     }

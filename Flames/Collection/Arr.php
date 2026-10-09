@@ -26,7 +26,7 @@ use Flames\Collection\Trait\Prototype as PrototypeTrait;
  *     shallow snapshot via copy() / mapCopy() / mutateCopy() / withCopy() per call.
  *   • toArray() performs a deep conversion (nested Arr → array) for export/JSON only.
  */
-final class Arr extends \ArrayObject
+final class Arr extends \ArrayObject implements \Stringable
 {
     use PrototypeTrait;
 
@@ -763,7 +763,7 @@ final class Arr extends \ArrayObject
      */
     public function diff(self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(array_diff($this->copy(), ...$others));
     }
 
@@ -772,7 +772,7 @@ final class Arr extends \ArrayObject
      */
     public function diffAssoc(self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(array_diff_assoc($this->copy(), ...$others));
     }
 
@@ -781,7 +781,7 @@ final class Arr extends \ArrayObject
      */
     public function diffKey(self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(array_diff_key($this->copy(), ...$others));
     }
 
@@ -793,7 +793,7 @@ final class Arr extends \ArrayObject
      */
     public function diffAssocByKeyDelegate(\Closure $delegate, self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(self::callArrayFuncWithDelegate('array_diff_uassoc', $this->copy(), $others, $delegate));
     }
 
@@ -805,7 +805,7 @@ final class Arr extends \ArrayObject
      */
     public function diffKeysByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(self::callArrayFuncWithDelegate('array_diff_ukey', $this->copy(), $others, $delegate));
     }
 
@@ -817,7 +817,7 @@ final class Arr extends \ArrayObject
      */
     public function diffByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(self::callArrayFuncWithDelegate('array_udiff', $this->copy(), $others, $delegate));
     }
 
@@ -829,7 +829,7 @@ final class Arr extends \ArrayObject
      */
     public function diffAssocByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(self::callArrayFuncWithDelegate('array_udiff_assoc', $this->copy(), $others, $delegate));
     }
 
@@ -841,7 +841,7 @@ final class Arr extends \ArrayObject
      */
     public function diffKeyByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(self::callArrayFuncWithDelegate('array_udiff_key', $this->copy(), $others, $delegate));
     }
 
@@ -850,7 +850,7 @@ final class Arr extends \ArrayObject
      */
     public function intersect(self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(array_intersect($this->copy(), ...$others));
     }
 
@@ -859,7 +859,7 @@ final class Arr extends \ArrayObject
      */
     public function intersectAssoc(self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(array_intersect_assoc($this->copy(), ...$others));
     }
 
@@ -868,7 +868,7 @@ final class Arr extends \ArrayObject
      */
     public function intersectKey(self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(array_intersect_key($this->copy(), ...$others));
     }
 
@@ -880,7 +880,7 @@ final class Arr extends \ArrayObject
      */
     public function intersectAssocByKeyDelegate(\Closure $delegate, self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(self::callArrayFuncWithDelegate('array_intersect_uassoc', $this->copy(), $others, $delegate));
     }
 
@@ -892,7 +892,7 @@ final class Arr extends \ArrayObject
      */
     public function intersectKeysByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(self::callArrayFuncWithDelegate('array_intersect_ukey', $this->copy(), $others, $delegate));
     }
 
@@ -904,7 +904,7 @@ final class Arr extends \ArrayObject
      */
     public function intersectByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(self::callArrayFuncWithDelegate('array_uintersect', $this->copy(), $others, $delegate));
     }
 
@@ -916,7 +916,7 @@ final class Arr extends \ArrayObject
      */
     public function intersectAssocByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(self::callArrayFuncWithDelegate('array_uintersect_assoc', $this->copy(), $others, $delegate));
     }
 
@@ -928,7 +928,7 @@ final class Arr extends \ArrayObject
      */
     public function intersectKeyByDelegate(\Closure $delegate, self|array ...$arrays): self
     {
-        $others = array_map(static fn(self|array $array): array => self::toNative($array), $arrays);
+        $others = array_map(self::toNative(...), $arrays);
         return new self(self::callArrayFuncWithDelegate('array_uintersect_ukey', $this->copy(), $others, $delegate));
     }
 

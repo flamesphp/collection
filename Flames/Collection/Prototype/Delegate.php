@@ -33,7 +33,7 @@ final class Delegate implements ArrayAccess
     /** @var array<class-string, bool> */
     private static array $finalClassCache = [];
 
-    public function __construct(private object $instance)
+    public function __construct(private readonly object $instance)
     {
     }
 
@@ -80,7 +80,6 @@ final class Delegate implements ArrayAccess
         $this->assertMemberAccessible($method->isPrivate(), $method->isProtected(), $class, $name, 'method');
 
         if ($method->isProtected()) {
-            $method->setAccessible(true);
         }
 
         return self::$methodCache[$key] = $method;
@@ -108,7 +107,6 @@ final class Delegate implements ArrayAccess
         $this->assertMemberAccessible($property->isPrivate(), $property->isProtected(), $class, $name, 'property');
 
         if ($property->isProtected()) {
-            $property->setAccessible(true);
         }
 
         return self::$propertyCache[$key] = $property;
@@ -142,7 +140,7 @@ final class Delegate implements ArrayAccess
 
     private function isFinalClass(string $class): bool
     {
-        return self::$finalClassCache[$class] ??= (new ReflectionClass($class))->isFinal();
+        return self::$finalClassCache[$class] ??= new ReflectionClass($class)->isFinal();
     }
 
     public function offsetExists(mixed $offset): bool
